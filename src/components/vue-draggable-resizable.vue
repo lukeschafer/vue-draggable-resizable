@@ -349,7 +349,10 @@ export default {
       this.elementDown(e)
     },
     elementDown (e) {
-      if(e.which !== 1) return;
+      if (e.which !== 1) {
+        return
+      }
+
       const target = e.target || e.srcElement
 
       if (this.$el.contains(target)) {
@@ -426,6 +429,10 @@ export default {
       this.handleDown(handle, e)
     },
     handleDown (handle, e) {
+      if (e.which !== 1) {
+        return
+      }
+
       if (this.onResizeStart && this.onResizeStart(handle, e) === false) {
         return
       }
