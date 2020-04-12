@@ -1,6 +1,7 @@
+import { expect } from 'chai'
 import { isFunction, snapToGrid } from '@/utils/fns'
 
-describe('functions', function () {
+describe('fns', function () {
   describe('isFunction', function () {
     it('should return false if a String is provided', function () {
       expect(isFunction('test')).to.be.false
@@ -24,12 +25,12 @@ describe('functions', function () {
   })
 
   describe('snapToGrid', function () {
-    it.only('should snap exactly to the size of the grid', function () {
+    it('should snap exactly to the size of the grid', function () {
       expect(snapToGrid([1, 1], 0, 0)).to.deep.equal([0, 0])
       expect(snapToGrid([1, 1], 1, 1)).to.deep.equal([1, 1])
     })
 
-    it.only('should snap exactly to the size of the grid', function () {
+    it('should snap exactly to the size of the grid', function () {
       expect(snapToGrid([5, 5], 0, 0)).to.deep.equal([0, 0])
       expect(snapToGrid([5, 5], 1, 1)).to.deep.equal([0, 0])
       expect(snapToGrid([5, 5], 2, 2)).to.deep.equal([0, 0])
