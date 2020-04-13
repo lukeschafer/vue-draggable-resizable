@@ -17,7 +17,7 @@
     "unit": "cross-env BABEL_ENV=test mocha-webpack --webpack-config=webpack.test.js tests/unit/specs/**/*.js",
     "unit-watch": "cross-env BABEL_ENV=test mocha-webpack --watch --webpack-config=webpack.test.js tests/unit/specs/**/*.js",
     "feature": "cross-env BABEL_ENV=test node_modules/karma/bin/karma start tests/feature/karma.conf.js --single-run",
-    "ƒeature-watch": "cross-env BABEL_ENV=test node_modules/karma/bin/karma start tests/feature/karma.conf.js",
+    "feature-watch": "cross-env BABEL_ENV=test node_modules/karma/bin/karma start tests/feature/karma.conf.js",
     "storybook": "start-storybook -p 9001 -c .storybook",
     "gh-pages:clean": "rm -rf docs",
     "gh-pages:build": "build-storybook -c .storybook -o docs",

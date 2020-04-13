@@ -21,24 +21,12 @@
     >
       <slot :name="handle"></slot>
     </div>
-    <slot>
-      <div class="wrapper">
-        <div>({{ this.x }},{{ this.y }})</div>
-        <div>{{ this.top }}</div>
-        <div></div>
-        <div>{{ this.left }}</div>
-        <div>{{ this.width }}x{{ this.height }}</div>
-        <div>{{ this.right }}</div>
-        <div></div>
-        <div>{{ this.bottom }}</div>
-        <div>{{ this.aspectFactor }}</div>
-      </div>
-    </slot>
+    <slot></slot>
   </div>
 </template>
 
 <script>
-import { matchesSelectorToParentElements, addEvent, removeEvent } from '../utils/dom'
+import { matchesSelectorToParentElements, getComputedSize, addEvent, removeEvent } from '../utils/dom'
 import { computeWidth, computeHeight, getSize, restrictToBounds, snapToGrid } from '../utils/fns'
 
 const events = {
@@ -131,14 +119,26 @@ export default {
       default: false
     },
     w: {
-      type: Number,
-      default: 200,
-      validator: (val) => val > 0
+      type: [Number, String],
+      default: 'auto',
+      validator: (val) => {
+        if (typeof val === 'number') {
+          return val > 0
+        }
+
+        return val === 'auto'
+      }
     },
     h: {
-      type: Number,
-      default: 200,
-      validator: (val) => val > 0
+      type: [Number, String],
+      default: 'auto',
+      validator: (val) => {
+        if (typeof val === 'number') {
+          return val > 0
+        }
+
+        return val === 'auto'
+      }
     },
     minWidth: {
       type: Number,
@@ -162,13 +162,11 @@ export default {
     },
     x: {
       type: Number,
-      default: 0,
-      validator: (val) => typeof val === 'number'
+      default: 0
     },
     y: {
       type: Number,
-      default: 0,
-      validator: (val) => typeof val === 'number'
+      default: 0
     },
     z: {
       type: [String, Number],
@@ -212,7 +210,7 @@ export default {
     },
     onDragStart: {
       type: Function,
-      default: null
+      default: () => true
     },
     onDrag: {
       type: Function,
@@ -220,7 +218,7 @@ export default {
     },
     onResizeStart: {
       type: Function,
-      default: null
+      default: () => true
     },
     onResize: {
       type: Function,
@@ -235,10 +233,13 @@ export default {
       right: null,
       bottom: null,
 
-      width: this.w,
-      height: this.h,
+      width: null,
+      height: null,
 
-      aspectFactor: this.w / this.h,
+      widthTouched: false,
+      heightTouched: false,
+
+      aspectFactor: null,
 
       parentWidth: null,
       parentHeight: null,
@@ -270,21 +271,20 @@ export default {
       this.$el.ondragstart = () => false
     }
 
-    // l'idea qui è di fare tutti i calcoli per
-    // determinare la larghezza e l'altezza in base a parent
-    // - se w e h === auto
-    //  non appena comincio a ridimensionare, uso nuovi valori
-
-    const [width, height] = [this.width, this.height]
-    // getSize(this.$el)
-
     const [parentWidth, parentHeight] = this.getParentSize()
 
     this.parentWidth = parentWidth
     this.parentHeight = parentHeight
 
-    this.right = this.parentWidth - width - this.left
-    this.bottom = this.parentHeight - height - this.top
+    const [width, height] = getComputedSize(this.$el)
+
+    this.aspectFactor = (this.w !== 'auto' ? this.w : width) / (this.h !== 'auto' ? this.h : height)
+
+    this.width = this.w !== 'auto' ? this.w : width
+    this.height = this.h !== 'auto' ? this.h : height
+
+    this.right = this.parentWidth - this.width - this.left
+    this.bottom = this.parentHeight - this.height - this.top
 
     addEvent(document.documentElement, 'mousedown', this.deselect)
     addEvent(document.documentElement, 'touchend touchcancel', this.deselect)
@@ -356,7 +356,7 @@ export default {
       const target = e.target || e.srcElement
 
       if (this.$el.contains(target)) {
-        if (this.onDragStart && this.onDragStart(e) === false) {
+        if (this.onDragStart(e) === false) {
           return
         }
 
@@ -420,7 +420,7 @@ export default {
           this.$emit('update:active', false)
         }
 
-        removeEvent(document.documentElement, eventsFor.move, this.handleMove)
+        removeEvent(document.documentElement, eventsFor.move, this.handleResize)
       }
 
       this.resetBoundsAndMouseState()
@@ -435,7 +435,7 @@ export default {
         return
       }
 
-      if (this.onResizeStart && this.onResizeStart(handle, e) === false) {
+      if (this.onResizeStart(handle, e) === false) {
         return
       }
 
@@ -460,7 +460,7 @@ export default {
 
       this.bounds = this.calcResizeLimits()
 
-      addEvent(document.documentElement, eventsFor.move, this.handleMove)
+      addEvent(document.documentElement, eventsFor.move, this.handleResize)
       addEvent(document.documentElement, eventsFor.stop, this.handleUp)
     },
     calcResizeLimits () {
@@ -567,12 +567,12 @@ export default {
     },
     move (e) {
       if (this.resizing) {
-        this.handleMove(e)
+        this.handleResize(e)
       } else if (this.dragging) {
-        this.handleElementMoveEvent(e)
+        this.handleDrag(e)
       }
     },
-    handleElementMoveEvent (e) {
+    handleDrag (e) {
       const axis = this.axis
       const grid = this.grid
       const bounds = this.bounds
@@ -585,34 +585,38 @@ export default {
 
       const left = restrictToBounds(mouseClickPosition.left - deltaX, bounds.minLeft, bounds.maxLeft)
       const top = restrictToBounds(mouseClickPosition.top - deltaY, bounds.minTop, bounds.maxTop)
+
+      if (this.onDrag(left, top) === false) {
+        return
+      }
+
       const right = restrictToBounds(mouseClickPosition.right + deltaX, bounds.minRight, bounds.maxRight)
       const bottom = restrictToBounds(mouseClickPosition.bottom + deltaY, bounds.minBottom, bounds.maxBottom)
 
-      if (this.onDrag (left, top)) {
-        this.left = left
-        this.top = top
-        this.right = right
-        this.bottom = bottom
-
-        this.$emit('dragging', this.left, this.top)
-      }
-    },
-    _elementMove(tmpDeltaX, tmpDeltaY) {
-      // logica strettamente legata a watch
-      const grid = this.grid
-      const bounds = this.bounds
-
-      const [deltaX, deltaY] = snapToGrid(grid, tmpDeltaX, tmpDeltaY, this.scale)
-
-      const left = restrictToBounds(deltaX, bounds.minLeft, bounds.maxLeft)
-      const top = restrictToBounds(deltaY, bounds.minTop, bounds.maxTop)
-
       this.left = left
       this.top = top
+      this.right = right
+      this.bottom = bottom
+
+      this.$emit('dragging', this.left, this.top)
+    },
+    moveHorizontally (val) {
+      const [deltaX, _] = snapToGrid(this.grid, val, this.top, this.scale)
+
+      const left = restrictToBounds(deltaX, this.bounds.minLeft, this.bounds.maxLeft)
+
+      this.left = left
       this.right = this.parentWidth - this.width - left
+    },
+    moveVertically (val) {
+      const [_, deltaY] = snapToGrid(this.grid, this.left, val, this.scale)
+
+      const top = restrictToBounds(deltaY, this.bounds.minTop, this.bounds.maxTop)
+
+      this.top = top
       this.bottom = this.parentHeight - this.height - top
     },
-    handleMove (e) {
+    handleResize (e) {
       let left = this.left
       let top = this.top
       let right = this.right
@@ -624,6 +628,14 @@ export default {
 
       const tmpDeltaX = mouseClickPosition.mouseX - (e.touches ? e.touches[0].pageX : e.pageX)
       const tmpDeltaY = mouseClickPosition.mouseY - (e.touches ? e.touches[0].pageY : e.pageY)
+
+      if (!this.widthTouched && tmpDeltaX) {
+        this.widthTouched = true
+      }
+
+      if (!this.heightTouched && tmpDeltaY) {
+        this.heightTouched = true
+      }
 
       const [deltaX, deltaY] = snapToGrid(this.grid, tmpDeltaX, tmpDeltaY, this.scale)
 
@@ -674,18 +686,20 @@ export default {
       const width = computeWidth(this.parentWidth, left, right)
       const height = computeHeight(this.parentHeight, top, bottom)
 
-      if (this.onResize (left, top, width, height)) {
-        this.left = left
-        this.top = top
-        this.right = right
-        this.bottom = bottom
-        this.width = width
-        this.height = height
-
-        this.$emit('resizing', this.left, this.top, this.width, this.height)
+      if (this.onResize(left, top, width, height) === false) {
+        return
       }
+
+      this.left = left
+      this.top = top
+      this.right = right
+      this.bottom = bottom
+      this.width = width
+      this.height = height
+
+      this.$emit('resizing', this.left, this.top, this.width, this.height)
     },
-    _changeWidth(val) {
+    changeWidth (val) {
       const [newWidth, _] = snapToGrid(this.grid, val, 0, this.scale)
 
       let right = restrictToBounds(
@@ -707,7 +721,7 @@ export default {
       this.width = width
       this.height = height
     },
-    _changeHeight(val) {
+    changeHeight (val) {
       const [_, newHeight] = snapToGrid(this.grid, 0, val, this.scale)
 
       let bottom = restrictToBounds(
@@ -743,15 +757,15 @@ export default {
         this.$emit('dragstop', this.left, this.top)
       }
 
-      removeEvent(document.documentElement, eventsFor.move, this.handleMove)
+      removeEvent(document.documentElement, eventsFor.move, this.handleResize)
     }
   },
   computed: {
     style () {
       return {
         transform: `translate(${this.left}px, ${this.top}px)`,
-        width: this.width + 'px',
-        height: this.height + 'px',
+        width: this.computedWidth,
+        height: this.computedHeight,
         zIndex: this.zIndex,
         ...(this.dragging && this.disableUserSelect ? userSelectNone : userSelectAuto)
       }
@@ -761,12 +775,24 @@ export default {
 
       return this.handles
     },
-    // width () {
-    //   return this.parentWidth - this.left - this.right
-    // },
-    // height () {
-    //   return this.parentHeight - this.top - this.bottom
-    // },
+    computedWidth () {
+      if (this.w === 'auto') {
+        if (!this.widthTouched) {
+          return 'auto'
+        }
+      }
+
+      return this.width + 'px'
+    },
+    computedHeight () {
+      if (this.h === 'auto') {
+        if (!this.heightTouched) {
+          return 'auto'
+        }
+      }
+
+      return this.height + 'px'
+    },
     resizingOnX () {
       return (Boolean(this.handle) && (this.handle.includes('l') || this.handle.includes('r')))
     },
@@ -793,90 +819,6 @@ export default {
         this.zIndex = val
       }
     },
-    rawLeft (newLeft) {
-      // const bounds = this.bounds
-      // const aspectFactor = this.aspectFactor
-      // const lockAspectRatio = this.lockAspectRatio
-      // const left = this.left
-      // const top = this.top
-
-      // newLeft = restrictToBounds(newLeft, bounds.minLeft, bounds.maxLeft)
-
-      // if (bounds.minLeft !== null && newLeft < bounds.minLeft) {
-      //   newLeft = bounds.minLeft
-      // } else if (bounds.maxLeft !== null && bounds.maxLeft < newLeft) {
-      //   newLeft = bounds.maxLeft
-      // }
-
-      // if (lockAspectRatio && this.resizingOnX) {
-      //   this.rawTop = top - (left - newLeft) / aspectFactor
-      // }
-
-      // this.left = newLeft
-    },
-    rawRight (newRight) {
-      // const bounds = this.bounds
-      // const aspectFactor = this.aspectFactor
-      // const lockAspectRatio = this.lockAspectRatio
-      // const right = this.right
-      // const bottom = this.bottom
-
-      // newRight = restrictToBounds(newRight, bounds.minRight, bounds.maxRight)
-
-      // if (bounds.minRight !== null && newRight < bounds.minRight) {
-      //   newRight = bounds.minRight
-      // } else if (bounds.maxRight !== null && bounds.maxRight < newRight) {
-      //   newRight = bounds.maxRight
-      // }
-
-      // if (lockAspectRatio && this.resizingOnX) {
-      //   this.rawBottom = bottom - (right - newRight) / aspectFactor
-      // }
-
-      // this.right = newRight
-    },
-    rawTop (newTop) {
-      // const bounds = this.bounds
-      // const aspectFactor = this.aspectFactor
-      // const lockAspectRatio = this.lockAspectRatio
-      // const left = this.left
-      // const top = this.top
-
-      // newTop = restrictToBounds(newTop, bounds.minTop, bounds.maxTop)
-
-      // if (bounds.minTop !== null && newTop < bounds.minTop) {
-      //   newTop = bounds.minTop
-      // } else if (bounds.maxTop !== null && bounds.maxTop < newTop) {
-      //   newTop = bounds.maxTop
-      // }
-
-      // if (lockAspectRatio && this.resizingOnY) {
-      //   this.rawLeft = left - (top - newTop) * aspectFactor
-      // }
-
-      // this.top = newTop
-    },
-    rawBottom (newBottom) {
-      // const bounds = this.bounds
-      // const aspectFactor = this.aspectFactor
-      // const lockAspectRatio = this.lockAspectRatio
-      // const right = this.right
-      // const bottom = this.bottom
-
-      // newBottom = restrictToBounds(newBottom, bounds.minBottom, bounds.maxBottom)
-
-      // if (bounds.minBottom !== null && newBottom < bounds.minBottom) {
-      //   newBottom = bounds.minBottom
-      // } else if (bounds.maxBottom !== null && bounds.maxBottom < newBottom) {
-      //   newBottom = bounds.maxBottom
-      // }
-
-      // if (lockAspectRatio && this.resizingOnY) {
-      //   this.rawRight = right - (bottom - newBottom) * aspectFactor
-      // }
-
-      // this.bottom = newBottom
-    },
     x (val) {
       if (this.resizing || this.dragging) {
         return
@@ -886,12 +828,7 @@ export default {
         this.bounds = this.calcDragLimits()
       }
 
-      this._elementMove(val, this.top)
-
-      // if (delta % this.grid[0] === 0) {
-      //   this.rawLeft = this.x
-      //   this.rawRight = this.right - delta
-      // }
+      this.moveHorizontally(val)
     },
     y (val) {
       if (this.resizing || this.dragging) {
@@ -902,14 +839,7 @@ export default {
         this.bounds = this.calcDragLimits()
       }
 
-      this._elementMove(this.left, val)
-
-      // const delta = this.y - this.top
-
-      // if (delta % this.grid[1] === 0) {
-      //   this.rawTop = this.y
-      //   this.rawBottom = this.bottom - delta
-      // }
+      this.moveVertically(val)
     },
     lockAspectRatio (val) {
       if (val) {
@@ -943,16 +873,7 @@ export default {
         this.bounds = this.calcResizeLimits()
       }
 
-      this._changeWidth(val)
-
-      // this.right = this.parentWidth - val - this.left
-      // this.width = val
-
-      // const delta = this.width - this.w
-
-      // if (delta % this.grid[0] === 0) {
-      //   this.rawRight = this.right + delta
-      // }
+      this.changeWidth(val)
     },
     h (val) {
       if (this.resizing || this.dragging) {
@@ -963,27 +884,8 @@ export default {
         this.bounds = this.calcResizeLimits()
       }
 
-      this._changeHeight(val)
-
-      // const delta = this.height - this.h
-
-      // if (delta % this.grid[1] === 0) {
-      //   this.rawBottom = this.bottom + delta
-      // }
+      this.changeHeight(val)
     }
   }
 }
 </script>
-
-<style>
-  .wrapper {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    grid-gap: 10px;
-    grid-auto-rows: auto;
-  }
-
-  .wrapper div {
-    border: 1px solid lightgray;
-  }
-</style>
